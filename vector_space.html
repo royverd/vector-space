@@ -1,0 +1,929 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>N-Space — Vector & Transform Viewer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+  :root{
+    --bg-panel: #14171f;
+    --bg-panel-2: #1b1f2a;
+    --border: #262b38;
+    --text: #dde1ea;
+    --text-dim: #7b8296;
+    --accent: #4fd1c5;
+    --accent-dim: #2a5c58;
+    --warn: #f5a623;
+    --mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#05060a; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: var(--text); }
+  #viewport { position:fixed; inset:0; }
+  #panel {
+    position:fixed; top:0; right:0; height:100%; width:340px;
+    background: var(--bg-panel); border-left:1px solid var(--border);
+    overflow-y:auto; padding:16px; font-size:12.5px; z-index:10;
+  }
+  #panel::-webkit-scrollbar{ width:8px; }
+  #panel::-webkit-scrollbar-thumb{ background:#2a2f3d; border-radius:4px; }
+  h1 { font-size:13px; letter-spacing:0.08em; text-transform:uppercase; color:var(--accent); margin:0 0 2px; font-weight:600; }
+  .sub { color:var(--text-dim); font-size:11px; margin-bottom:16px; }
+  section { margin-bottom:18px; padding-bottom:14px; border-bottom:1px solid var(--border); }
+  section:last-child{ border-bottom:none; }
+  h2 { font-size:10.5px; text-transform:uppercase; letter-spacing:0.07em; color:var(--text-dim); margin:0 0 8px; font-weight:600; }
+  label { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px; color:var(--text); }
+  label span.lbl { flex:1; }
+  input[type=number] {
+    width:64px; background:#0d0f16; border:1px solid var(--border); color:var(--text);
+    border-radius:4px; padding:4px 6px; font-family:var(--mono); font-size:12px;
+  }
+  input[type=range]{ width:120px; accent-color: var(--accent); }
+  input[type=color]{ width:36px; height:24px; border:none; background:none; padding:0; cursor:pointer; }
+  input[type=checkbox]{ accent-color: var(--accent); width:15px; height:15px; cursor:pointer; }
+  button {
+    background: var(--bg-panel-2); border:1px solid var(--border); color:var(--text);
+    padding:7px 10px; border-radius:5px; cursor:pointer; font-size:11.5px; font-weight:500;
+  }
+  button:hover{ border-color: var(--accent); color: var(--accent); }
+  button.primary { background: var(--accent-dim); border-color: var(--accent); color:#eafffb; }
+  button.small { padding:3px 7px; font-size:10.5px; }
+  .row { display:flex; gap:6px; }
+  .grid-matrix { display:grid; gap:4px; margin-top:6px; }
+  .grid-matrix input { width:100%; text-align:center; padding:5px 2px; }
+  .vec-row { display:flex; align-items:center; gap:5px; margin-bottom:6px; background:#0d0f16; padding:5px 6px; border-radius:5px; }
+  .swatch { width:11px; height:11px; border-radius:50%; flex-shrink:0; }
+  .vec-inputs { display:flex; gap:3px; flex-wrap:wrap; flex:1; }
+  .vec-inputs input { width:44px; padding:3px 4px; font-size:10.5px; }
+  .rm-btn { background:none; border:none; color:var(--text-dim); cursor:pointer; font-size:14px; padding:0 3px; }
+  .rm-btn:hover{ color:#e5484d; }
+  .hint { color: var(--text-dim); font-size:10.5px; line-height:1.5; margin-top:4px; }
+  .warn-box { background:#2a2010; border:1px solid #5c4212; color: var(--warn); padding:6px 8px; border-radius:5px; font-size:10.5px; margin-top:6px; }
+  #hud { position:fixed; left:14px; bottom:14px; color:var(--text-dim); font-family:var(--mono); font-size:11px; z-index:10; line-height:1.6; pointer-events:none; }
+  #hud b { color: var(--accent); }
+  .axis-list { display:flex; flex-direction:column; gap:4px; }
+  .axis-item { display:flex; align-items:center; gap:6px; font-family:var(--mono); font-size:11px; }
+  .axis-item input[type=text] { flex:1; background:#0d0f16; border:1px solid var(--border); color:var(--text); border-radius:4px; padding:3px 6px; font-family:var(--mono); font-size:11px; }
+  .vec-name { width:64px; flex-shrink:0; background:#0d0f16; border:1px solid var(--border); color:var(--text); border-radius:4px; padding:3px 5px; font-size:10.5px; }
+  #tooltip {
+    position:fixed; pointer-events:none; z-index:20; display:none;
+    background:#0d0f16; border:1px solid var(--border); color:var(--text);
+    padding:4px 8px; border-radius:5px; font-size:11.5px; font-family:var(--mono);
+    transform: translate(14px, -8px);
+  }
+  #tooltip .swatch { display:inline-block; margin-right:6px; vertical-align:middle; }
+</style>
+</head>
+<body>
+<div id="viewport"></div>
+<div id="tooltip"></div>
+<div id="hud">drag: rotate &middot; scroll: zoom &middot; shift+drag: pan · hover: name<br><b id="dimReadout">N = 3</b></div>
+
+<div id="panel">
+  <h1>N-Space</h1>
+  <div class="sub">vector space & linear transform viewer</div>
+
+  <section>
+    <h2>Dimensions</h2>
+    <label><span class="lbl">Dimension count (N)</span>
+      <input type="number" id="dimCount" min="0" max="9" value="3">
+    </label>
+    <div class="axis-list" id="axisList"></div>
+    <div class="hint">Axes 0–2 render as X/Y/Z. Axis 3+ are embedded on a spread of extra directions so they stay visually distinct.</div>
+    <div id="dimWarn"></div>
+  </section>
+
+  <section>
+    <h2>Transform matrix (M)</h2>
+    <div class="grid-matrix" id="matrixGrid"></div>
+    <div class="hint">Type new values, then click Jump or Animate to apply — editing alone doesn't move anything.</div>
+    <div class="row" style="margin-top:8px;">
+      <button id="btnIdentity" class="small">Reset field to identity</button>
+    </div>
+    <div class="row" style="margin-top:6px;">
+      <button id="btnJump" class="small">Jump</button>
+      <button id="btnAnimate" class="small primary">Animate</button>
+    </div>
+    <label style="margin-top:10px;"><span class="lbl">Animation speed</span>
+      <span class="row">
+        <input type="range" id="animSpeed" min="0.2" max="4" step="0.1" value="1" style="width:96px;">
+        <span id="animSpeedLabel" style="width:32px; text-align:right; font-family:var(--mono);">1.0x</span>
+      </span>
+    </label>
+    <div class="hint">Animate eases out — fast at the start, slowing into the landing — rather than moving at constant speed.</div>
+    <label style="margin-top:10px;"><span class="lbl">Rigid transform (preserve spacing &amp; angles)</span>
+      <input type="checkbox" id="rigidToggle">
+    </label>
+    <div class="hint">Any matrix here is already linear: origin fixed, lines stay straight and parallel, no exceptions. Rigid mode adds the one extra property linearity alone doesn't give you — spacing and angles preserved — by orthonormalizing M (Gram–Schmidt) into a pure rotation/reflection before applying it. Off, M is used as typed: shear and non-uniform scale are allowed, so spacing can change.</div>
+  </section>
+
+  <section>
+    <h2>Origin anchoring</h2>
+    <label><span class="lbl">Anchor at origin (linear, no translation)</span>
+      <input type="checkbox" id="anchorToggle" checked>
+    </label>
+    <div id="translateBlock" style="display:none;">
+      <div class="vec-inputs" id="translateInputs"></div>
+      <div class="hint">Adds a translation after M·v — this makes the map affine, not linear, so the grid and vectors no longer stay pinned to the origin.</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Vectors</h2>
+    <div class="row" style="margin-bottom:6px;">
+      <input type="text" id="newVecName" placeholder="name" class="vec-name" style="width:80px;">
+      <div class="vec-inputs" id="newVecInputs"></div>
+    </div>
+    <button id="btnAddVec" class="small">+ Add vector</button>
+    <div style="margin-top:10px;" id="vecList"></div>
+  </section>
+
+  <section>
+    <h2>Display</h2>
+    <label><span class="lbl">Show grid</span><input type="checkbox" id="gridToggle" checked></label>
+    <label><span class="lbl">Show original (ghost) grid</span><input type="checkbox" id="ghostToggle"></label>
+    <label><span class="lbl">Vector span planes</span><input type="checkbox" id="planeToggle" checked></label>
+    <div class="hint">Translucent parallelogram between every pair of vectors, blended from their two colors — the plane their combination spans.</div>
+    <label><span class="lbl">Grid extent</span>
+      <span class="row">
+        <input type="range" id="gridExtent" min="1" max="30" value="4" style="width:76px;">
+        <input type="number" id="gridExtentNum" min="1" max="200" value="4" style="width:52px;">
+      </span>
+    </label>
+    <label><span class="lbl">Background</span><input type="color" id="bgColor" value="#05060a"></label>
+  </section>
+
+  <section>
+    <h2>View offset</h2>
+    <div class="vec-inputs" id="offsetInputs"></div>
+    <div class="row" style="margin-top:8px;">
+      <button id="btnCenterView" class="small">Center view</button>
+    </div>
+    <div class="hint">Drag on empty space to grab and offset the whole scene; drag directly on the grid, an axis, or a vector to rotate instead.</div>
+  </section>
+</div>
+
+<script>
+// ---------- three.js scene setup ----------
+const viewport = document.getElementById('viewport');
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(window.innerWidth, window.innerHeight);
+viewport.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth/window.innerHeight, 0.01, 1000);
+// Three.js only knows how to render 3D scenes -- that's the API, not a property
+// of the visualization itself. For N<=2 we sidestep the "3D engine showing a flat
+// thing" mismatch by switching to an orthographic camera locked face-on to the
+// plane: no perspective falloff, no rotation, so it reads as a native 2D/1D view
+// even though the same WebGL pipeline is drawing it.
+const orthoCamera = new THREE.OrthographicCamera(-1,1,1,-1, 0.01, 1000);
+
+function activeCamera(){ return state.n <= 2 ? orthoCamera : camera; }
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// manual orbit controls (r128 build has no OrbitControls addon loaded)
+const orbit = { radius: 14, az: Math.PI*0.28, pol: Math.PI*0.38, target: new THREE.Vector3(0,0,0) };
+let dragging = false, panning = false, lastX=0, lastY=0;
+renderer.domElement.addEventListener('mousedown', e => {
+  dragging = true; lastX = e.clientX; lastY = e.clientY;
+  if(state.n <= 2 || e.shiftKey){
+    panning = true; // flat mode: rotation is meaningless: shift is an explicit force-pan override
+  } else {
+    // hit-test against everything currently drawn (grid included, unlike the
+    // hover-name raycast which skips grid lines on purpose): landing on actual
+    // geometry rotates like before, landing on empty space grabs/offsets the view
+    const rect = renderer.domElement.getBoundingClientRect();
+    mouseNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    mouseNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(mouseNDC, activeCamera());
+    panning = raycaster.intersectObjects(group.children, true).length === 0;
+  }
+});
+window.addEventListener('mouseup', () => { dragging = false; });
+window.addEventListener('mousemove', e => {
+  if(!dragging) return;
+  const dx = e.clientX - lastX, dy = e.clientY - lastY;
+  lastX = e.clientX; lastY = e.clientY;
+  if(panning){
+    const cam = activeCamera();
+    const forward = new THREE.Vector3(); cam.getWorldDirection(forward);
+    const right = new THREE.Vector3().crossVectors(forward, cam.up).normalize();
+    const up = new THREE.Vector3().crossVectors(right, forward).normalize();
+    const panSpeed = orbit.radius * (state.n <= 2 ? 0.0022 : 0.0016);
+    orbit.target.addScaledVector(right, -dx*panSpeed);
+    orbit.target.addScaledVector(up, dy*panSpeed);
+  } else {
+    orbit.az -= dx * 0.006;
+    orbit.pol -= dy * 0.006;
+    orbit.pol = Math.max(0.05, Math.min(Math.PI-0.05, orbit.pol));
+  }
+});
+renderer.domElement.addEventListener('wheel', e => {
+  e.preventDefault();
+  orbit.radius *= (1 + e.deltaY*0.001);
+  orbit.radius = Math.max(1.5, Math.min(80, orbit.radius));
+}, { passive:false });
+
+// ---------- hover-to-name ----------
+const raycaster = new THREE.Raycaster();
+// tighter than a first pass (was 0.14) -- thin lines are still forgiving enough
+// to hit, but this cuts down on grabbing the wrong nearby line in a dense grid
+raycaster.params.Line = { threshold: 0.08 };
+raycaster.params.Points = { threshold: 0.08 };
+const tooltipEl = document.getElementById('tooltip');
+const mouseNDC = new THREE.Vector2();
+function namedAncestor(obj){
+  while(obj){ if(obj.userData && obj.userData.name) return obj.userData; obj = obj.parent; }
+  return null;
+}
+// small marker for "the point you're touching" -- lives outside `group` (which
+// gets fully torn down and rebuilt every edit) so it survives rebuilds; depthTest
+// off + high renderOrder keeps it visible on top of whatever geometry it's on
+const hoverMarkerGeo = new THREE.SphereGeometry(0.045, 16, 16);
+const hoverMarkerMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent:true, opacity:0.95, depthTest:false });
+const hoverMarker = new THREE.Mesh(hoverMarkerGeo, hoverMarkerMat);
+hoverMarker.visible = false;
+hoverMarker.renderOrder = 999;
+scene.add(hoverMarker);
+renderer.domElement.addEventListener('mousemove', e => {
+  if(dragging){ tooltipEl.style.display = 'none'; hoverMarker.visible = false; return; }
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouseNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+  mouseNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(mouseNDC, activeCamera());
+  const hits = raycaster.intersectObjects(hoverTargets, true);
+  if(hits.length){
+    const data = namedAncestor(hits[0].object);
+    if(data){
+      tooltipEl.style.display = 'block';
+      tooltipEl.style.left = e.clientX + 'px';
+      tooltipEl.style.top = e.clientY + 'px';
+      tooltipEl.innerHTML = `<span class="swatch" style="background:${data.colorHex}"></span>${data.name}`;
+      hoverMarker.visible = true;
+      hoverMarker.position.copy(hits[0].point); // exact point on the line/arrow, not just "near it"
+      hoverMarker.material.color.set(data.colorHex);
+      return;
+    }
+  }
+  tooltipEl.style.display = 'none';
+  hoverMarker.visible = false;
+});
+renderer.domElement.addEventListener('mouseleave', () => { tooltipEl.style.display = 'none'; hoverMarker.visible = false; });
+
+function updateCamera(){
+  const x = orbit.target.x + orbit.radius * Math.sin(orbit.pol) * Math.cos(orbit.az);
+  const y = orbit.target.y + orbit.radius * Math.cos(orbit.pol);
+  const z = orbit.target.z + orbit.radius * Math.sin(orbit.pol) * Math.sin(orbit.az);
+  camera.position.set(x,y,z);
+  camera.lookAt(orbit.target);
+
+  // ortho camera: fixed face-on angle (looking down -Z at the XY plane), zoom
+  // via frustum size instead of distance -- true flat projection, no vanishing point
+  const aspect = window.innerWidth / window.innerHeight;
+  const halfH = orbit.radius * 0.6;
+  orthoCamera.left = -halfH*aspect; orthoCamera.right = halfH*aspect;
+  orthoCamera.top = halfH; orthoCamera.bottom = -halfH;
+  orthoCamera.near = 0.01; orthoCamera.far = 1000;
+  orthoCamera.updateProjectionMatrix();
+  orthoCamera.position.set(orbit.target.x, orbit.target.y, orbit.target.z + 10);
+  orthoCamera.up.set(0,1,0);
+  orthoCamera.lookAt(orbit.target);
+}
+
+scene.add(new THREE.AmbientLight(0xffffff, 1));
+
+// ---------- math helpers ----------
+function zeros(n){ return new Array(n).fill(0); }
+function identity(n){ const M=[]; for(let r=0;r<n;r++){ M.push(zeros(n)); M[r][r]=1; } return M; }
+function matVec(M, v, n){
+  const out = zeros(n);
+  for(let r=0;r<n;r++){ let s=0; for(let c=0;c<n;c++) s += M[r][c]*(v[c]||0); out[r]=s; }
+  return out;
+}
+function dot(a,b){ let s=0; for(let i=0;i<a.length;i++) s+=a[i]*b[i]; return s; }
+function gramSchmidt(M, n){
+  const cols = [];
+  for(let c=0;c<n;c++){ const v=[]; for(let r=0;r<n;r++) v.push(M[r][c]); cols.push(v); }
+  const ortho = [];
+  const used = new Set();
+  for(let c=0;c<n;c++){
+    let v = cols[c].slice();
+    for(const o of ortho){ const d = dot(v,o); for(let r=0;r<n;r++) v[r]-=d*o[r]; }
+    let norm = Math.sqrt(dot(v,v));
+    if(norm < 1e-6){
+      v = zeros(n);
+      for(let k=0;k<n;k++){
+        if(!used.has(k)){
+          const cand = zeros(n); cand[k]=1;
+          let proj = cand.slice();
+          for(const o of ortho){ const d=dot(proj,o); for(let r=0;r<n;r++) proj[r]-=d*o[r]; }
+          if(Math.sqrt(dot(proj,proj)) > 1e-6){ v = proj; used.add(k); break; }
+        }
+      }
+      norm = Math.sqrt(dot(v,v)) || 1;
+    }
+    v = v.map(x=>x/norm);
+    ortho.push(v);
+  }
+  const R = identity(n);
+  for(let r=0;r<n;r++) for(let c=0;c<n;c++) R[r][c] = ortho[c][r];
+  return R;
+}
+
+// axis embedding directions in 3D (fixed per N, independent of the transform)
+function fibonacciDir(i, count){
+  if(count <= 1) return new THREE.Vector3(1,1,1).normalize();
+  const golden = Math.PI * (3 - Math.sqrt(5));
+  const y = 1 - (i/(count-1))*2;
+  const radius = Math.sqrt(Math.max(0,1-y*y));
+  const theta = golden * i;
+  return new THREE.Vector3(Math.cos(theta)*radius, y, Math.sin(theta)*radius);
+}
+function axisDirections(n){
+  const dirs = [];
+  for(let i=0;i<n;i++){
+    if(i===0) dirs.push(new THREE.Vector3(1,0,0));
+    else if(i===1) dirs.push(new THREE.Vector3(0,1,0));
+    else if(i===2) dirs.push(new THREE.Vector3(0,0,1));
+    else dirs.push(fibonacciDir(i-3, Math.max(1,n-3)));
+  }
+  return dirs;
+}
+function embed(coords, dirs){
+  const p = new THREE.Vector3(0,0,0);
+  for(let i=0;i<coords.length;i++) p.addScaledVector(dirs[i], coords[i]);
+  return p;
+}
+function colorForIndex(i, hueOffset){
+  const hue = ((i*137.508) + hueOffset) % 360;
+  return new THREE.Color(`hsl(${hue}, 72%, 58%)`);
+}
+function axisLabel(i){
+  const n = state.axisNames[i];
+  return (n && n.trim()) ? n.trim() : `dim ${i}`;
+}
+// per-axis color: manual override if the user picked one, else the auto hue-step color
+function axisColorHex(i){
+  return state.axisColorOverrides[i] || '#'+colorForIndex(i,0).getHexString();
+}
+// simple sRGB channel average -- cheap, and fine here since it's a debug/read cue,
+// not a color-managed output
+function blendColors(hexList){
+  if(hexList.length === 1) return hexList[0];
+  let r=0,g=0,b=0;
+  hexList.forEach(h => { const c = new THREE.Color(h); r+=c.r; g+=c.g; b+=c.b; });
+  const n = hexList.length;
+  return '#' + new THREE.Color(r/n, g/n, b/n).getHexString();
+}
+// tiny disjoint-set: groups indices that end up parallel/coincident after the
+// transform, so collapse (rank-deficient M, or two vectors landing on the same
+// point) reads as one blended line/arrow instead of two solid colors fighting
+// for the same pixels
+function unionFind(n){
+  const parent = Array.from({length:n}, (_,i)=>i);
+  const find = x => parent[x]===x ? x : (parent[x]=find(parent[x]));
+  const union = (a,b) => { const ra=find(a), rb=find(b); if(ra!==rb) parent[ra]=rb; };
+  return { find, union };
+}
+// axes collapse when their transformed direction becomes parallel (dot ~ +-1) --
+// this is what a singular/rank-deficient M looks like visually. Direction only
+// uses the linear part of M; translation doesn't affect which way an axis points.
+function clusterAxes(n, Mcurrent, dirs){
+  const dirs3D = [];
+  for(let i=0;i<n;i++){
+    const e = zeros(n); e[i]=1;
+    const v = embed(matVec(Mcurrent, e, n), dirs);
+    dirs3D.push(v.lengthSq() < 1e-10 ? null : v.normalize());
+  }
+  const uf = unionFind(n);
+  for(let i=0;i<n;i++) for(let j=i+1;j<n;j++){
+    if(!dirs3D[i] || !dirs3D[j]) continue;
+    if(Math.abs(Math.abs(dirs3D[i].dot(dirs3D[j])) - 1) < 1e-3) uf.union(i,j);
+  }
+  const groups = {};
+  for(let i=0;i<n;i++) (groups[uf.find(i)] = groups[uf.find(i)] || []).push(i);
+  const colorOf = {}, nameOf = {};
+  Object.values(groups).forEach(idxs => {
+    const color = idxs.length > 1 ? blendColors(idxs.map(axisColorHex)) : axisColorHex(idxs[0]);
+    const name = idxs.map(axisLabel).join(' + ');
+    idxs.forEach(i => { colorOf[i]=color; nameOf[i]=name; });
+  });
+  return { colorOf, nameOf };
+}
+// vectors collapse when their transformed tips land on (almost) the same point --
+// distance-based rather than direction-based, since two vectors can share a tip
+// without sharing a direction from a non-origin tail (affine mode)
+function clusterVectors(Mcurrent, tEff, dirs){
+  const n = state.n;
+  const tips = state.vectors.map(vec => {
+    const raw = vec.components.slice(0,n); while(raw.length<n) raw.push(0);
+    return embed(mapPoint(raw, Mcurrent, tEff), dirs);
+  });
+  const m = tips.length;
+  const uf = unionFind(m);
+  for(let i=0;i<m;i++) for(let j=i+1;j<m;j++){
+    if(tips[i].distanceTo(tips[j]) < 0.03) uf.union(i,j);
+  }
+  const groups = {};
+  for(let i=0;i<m;i++) (groups[uf.find(i)] = groups[uf.find(i)] || []).push(i);
+  const colorOf = {}, nameOf = {};
+  Object.values(groups).forEach(idxs => {
+    const color = idxs.length > 1 ? blendColors(idxs.map(i=>state.vectors[i].color)) : state.vectors[idxs[0]].color;
+    const name = idxs.map(i => (state.vectors[i].name && state.vectors[i].name.trim()) || `v${i}`).join(' + ');
+    idxs.forEach(i => { colorOf[i]=color; nameOf[i]=name; });
+  });
+  return { colorOf, nameOf };
+}
+
+// objects the hover raycaster is allowed to hit -- grid lines are deliberately excluded
+let hoverTargets = [];
+// populated later once the offset panel inputs exist; declared here (not const,
+// not later) so animate()'s first synchronous call -- which fires before the
+// UI-wiring section runs -- doesn't hit a temporal-dead-zone error
+let offsetInputEls = [];
+
+// ---------- app state ----------
+const state = {
+  n: 3,
+  M: identity(3),        // staged/typed matrix -- editing this alone changes nothing on screen
+  appliedM: identity(3), // the matrix actually driving the render; only Jump/Animate move this forward
+  rigid: false,
+  anchor: true,
+  translate: zeros(3),
+  vectors: [], // {components:[...], color, name}
+  axisNames: ['X','Y','Z'],
+  axisColorOverrides: [null,null,null], // null = auto hue-step color
+  showGrid: true,
+  showGhost: false,
+  showPlanes: true,
+  gridExtent: 4,
+  bg: '#05060a',
+  animSpeed: 1,
+  animating: false, animT: 0, animFrom: null,
+};
+
+// ---------- scene group ----------
+let group = new THREE.Group();
+scene.add(group);
+
+function effectiveMatrix(M){
+  return state.rigid ? gramSchmidt(M, state.n) : M;
+}
+function effectiveTranslate(animScale){
+  if(state.anchor) return zeros(state.n);
+  return state.translate.map(x => x*animScale);
+}
+// fast start, slowing into the landing -- ease-out (cubic). t in [0,1].
+function easeOutCubic(t){ return 1 - Math.pow(1-t, 3); }
+
+function mapPoint(rawCoords, Meff, tEff){
+  const n = state.n;
+  const t = matVec(Meff, rawCoords, n);
+  for(let i=0;i<n;i++) t[i] += (tEff[i]||0);
+  return t;
+}
+
+function makeLine(p1, p2, color, opacity){
+  const geo = new THREE.BufferGeometry().setFromPoints([p1,p2]);
+  const mat = new THREE.LineBasicMaterial({ color, transparent: opacity<1, opacity });
+  return new THREE.Line(geo, mat);
+}
+function makeArrow(dirVec, length, color){
+  if(length < 1e-4) return null;
+  const dir = dirVec.clone().normalize();
+  const headLen = Math.min(0.35, length*0.3);
+  const headWidth = headLen*0.55;
+  return new THREE.ArrowHelper(dir, new THREE.Vector3(0,0,0), length, color, headLen, headWidth);
+}
+
+function rebuildScene(){
+  while(group.children.length) group.remove(group.children[0]);
+  hoverTargets = [];
+  const n = state.n;
+  const dirs = axisDirections(n);
+  // eased progress: raw lerp fraction feels linear/mechanical, ease-out (fast
+  // start, slow landing) reads as "settling into place" instead
+  const eased = state.animating ? easeOutCubic(state.animT) : 1;
+  const animScale = state.animating ? eased : 1;
+  const rawCurrent = state.animating
+    ? state.animFrom.map((row,r)=>row.map((v,c)=> v + (state.M[r][c]-v)*eased))
+    : state.appliedM;
+  const Mcurrent = effectiveMatrix(rawCurrent);
+  const tEff = effectiveTranslate(animScale);
+
+  // ghost (untransformed) grid + axes
+  if(state.showGhost){
+    const ext = state.gridExtent;
+    for(let i=0;i<n;i++){
+      for(let j=0;j<n;j++){
+        if(i===j) continue;
+        for(let o=-ext;o<=ext;o++){
+          const p1 = zeros(n); p1[i]=-ext; p1[j]=o;
+          const p2 = zeros(n); p2[i]=ext; p2[j]=o;
+          group.add(makeLine(embed(p1,dirs), embed(p2,dirs), 0x555a68, 0.25));
+        }
+      }
+    }
+  }
+
+  // transformed grid -- tint each plane's lines by blending its two axis colors,
+  // so grid color always tracks axis color (manual or auto) without a separate picker
+  if(state.showGrid && n >= 2){
+    const ext = state.gridExtent;
+    for(let i=0;i<n;i++){
+      for(let j=i+1;j<n;j++){
+        const col = blendColors([axisColorHex(i), axisColorHex(j)]);
+        for(let o=-ext;o<=ext;o++){
+          const opacity = o===0 ? 0.55 : 0.16;
+          let p1 = zeros(n); p1[i]=-ext; p1[j]=o;
+          let p2 = zeros(n); p2[i]=ext; p2[j]=o;
+          let t1 = mapPoint(p1, Mcurrent, tEff), t2 = mapPoint(p2, Mcurrent, tEff);
+          group.add(makeLine(embed(t1,dirs), embed(t2,dirs), col, opacity));
+
+          p1 = zeros(n); p1[j]=-ext; p1[i]=o;
+          p2 = zeros(n); p2[j]=ext; p2[i]=o;
+          t1 = mapPoint(p1, Mcurrent, tEff); t2 = mapPoint(p2, Mcurrent, tEff);
+          group.add(makeLine(embed(t1,dirs), embed(t2,dirs), col, opacity));
+        }
+      }
+    }
+  } else if(state.showGrid && n===1){
+    let p1=[-state.gridExtent], p2=[state.gridExtent];
+    const t1=mapPoint(p1,Mcurrent,tEff), t2=mapPoint(p2,Mcurrent,tEff);
+    group.add(makeLine(embed(t1,dirs), embed(t2,dirs), axisColorHex(0), 0.4));
+  }
+
+  // axis lines (transformed) + origin -- color/name pulled from the collapse
+  // cluster so axes that landed on the same line after M read as merged, not stacked
+  const axisClusters = clusterAxes(n, Mcurrent, dirs);
+  for(let i=0;i<n;i++){
+    const raw1 = zeros(n); raw1[i] = -6;
+    const raw2 = zeros(n); raw2[i] = 6;
+    const t1 = mapPoint(raw1, Mcurrent, tEff), t2 = mapPoint(raw2, Mcurrent, tEff);
+    const hex = axisClusters.colorOf[i];
+    const line = makeLine(embed(t1,dirs), embed(t2,dirs), hex, 1);
+    line.material.linewidth = 2;
+    line.userData.name = axisClusters.nameOf[i];
+    line.userData.colorHex = hex;
+    hoverTargets.push(line);
+    group.add(line);
+  }
+
+  // origin marker
+  const originGeo = new THREE.SphereGeometry(0.05, 12, 12);
+  const originMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  const originMesh = new THREE.Mesh(originGeo, originMat);
+  originMesh.userData.name = 'origin';
+  originMesh.userData.colorHex = '#ffffff';
+  hoverTargets.push(originMesh);
+  group.add(originMesh);
+  if(!state.anchor){
+    const tOrigin = embed(tEff, dirs);
+    const tMesh = new THREE.Mesh(new THREE.SphereGeometry(0.05,12,12), new THREE.MeshBasicMaterial({color:0xf5a623}));
+    tMesh.position.copy(tOrigin);
+    group.add(tMesh);
+  }
+
+  // vectors -- color/name pulled from the collapse cluster so two vectors that
+  // land on the same point (e.g. one is in the kernel of a singular M) read as
+  // a single blended arrow instead of one hiding the other
+  const vecClusters = clusterVectors(Mcurrent, tEff, dirs);
+  const tail = state.anchor ? new THREE.Vector3(0,0,0) : embed(tEff, dirs);
+  const vecTips = []; // reused below for span planes -- avoid recomputing per pair
+  state.vectors.forEach((vec, idx) => {
+    const raw = vec.components.slice(0, n);
+    while(raw.length < n) raw.push(0);
+    const t = mapPoint(raw, Mcurrent, tEff);
+    const tip = embed(t, dirs);
+    vecTips.push(tip);
+    const seg = tip.clone().sub(tail);
+    const length = seg.length();
+    const hex = vecClusters.colorOf[idx];
+    const arrow = makeArrow(seg, length, new THREE.Color(hex));
+    if(arrow){
+      arrow.position.copy(tail);
+      arrow.userData.name = vecClusters.nameOf[idx];
+      arrow.userData.colorHex = hex;
+      hoverTargets.push(arrow);
+      group.add(arrow);
+    }
+    if(state.showGhost){
+      const ghostTip = embed(raw, dirs);
+      group.add(makeLine(new THREE.Vector3(0,0,0), ghostTip, new THREE.Color(vec.color), 0.3));
+    }
+  });
+
+  // span planes: the parallelogram tail, tail+vi, tail+vi+vj, tail+vj -- the
+  // plane a pair of vectors spans. Two triangles, double-sided (plane should
+  // read the same from behind), depthWrite off so overlapping planes don't
+  // fight each other or hide the vectors/grid behind them
+  if(state.showPlanes){
+    for(let i=0;i<vecTips.length;i++){
+      for(let j=i+1;j<vecTips.length;j++){
+        const vi = vecTips[i].clone().sub(tail), vj = vecTips[j].clone().sub(tail);
+        if(vi.lengthSq()<1e-8 || vj.lengthSq()<1e-8) continue; // degenerate, nothing to span
+        const p00 = tail, p10 = tail.clone().add(vi), p11 = tail.clone().add(vi).add(vj), p01 = tail.clone().add(vj);
+        const geo = new THREE.BufferGeometry().setFromPoints([p00,p10,p11, p00,p11,p01]);
+        geo.computeVertexNormals();
+        const hex = blendColors([state.vectors[i].color, state.vectors[j].color]);
+        const mat = new THREE.MeshBasicMaterial({ color: hex, transparent:true, opacity:0.18, side:THREE.DoubleSide, depthWrite:false });
+        group.add(new THREE.Mesh(geo, mat));
+      }
+    }
+  }
+
+  renderer.render(scene, activeCamera());
+}
+
+// ---------- animation loop ----------
+function animate(){
+  requestAnimationFrame(animate);
+  updateCamera();
+  syncOffsetInputs();
+  if(state.animating){
+    state.animT += 0.02 * state.animSpeed; // raw progress; easeOutCubic shapes it for rendering
+    if(state.animT >= 1){
+      state.animT = 1;
+      state.animating = false;
+      state.appliedM = state.M.map(row => row.slice()); // commit: typed matrix is now "current"
+    }
+    rebuildScene();
+  } else {
+    renderer.render(scene, activeCamera());
+  }
+}
+animate();
+
+// ---------- UI wiring ----------
+const dimCountEl = document.getElementById('dimCount');
+const axisListEl = document.getElementById('axisList');
+const matrixGridEl = document.getElementById('matrixGrid');
+const translateBlock = document.getElementById('translateBlock');
+const translateInputsEl = document.getElementById('translateInputs');
+const newVecInputsEl = document.getElementById('newVecInputs');
+const vecListEl = document.getElementById('vecList');
+const dimWarnEl = document.getElementById('dimWarn');
+const dimReadout = document.getElementById('dimReadout');
+const offsetInputsEl = document.getElementById('offsetInputs');
+
+function renderAxisList(){
+  axisListEl.innerHTML = '';
+  for(let i=0;i<state.n;i++){
+    const div = document.createElement('div');
+    div.className = 'axis-item';
+
+    const colorInp = document.createElement('input');
+    colorInp.type = 'color'; colorInp.value = axisColorHex(i);
+    colorInp.addEventListener('input', () => {
+      state.axisColorOverrides[i] = colorInp.value;
+      rebuildScene();
+    });
+
+    const nameInp = document.createElement('input');
+    nameInp.type = 'text'; nameInp.value = state.axisNames[i] || ''; nameInp.placeholder = `dim ${i}`;
+    nameInp.addEventListener('input', () => { state.axisNames[i] = nameInp.value; rebuildScene(); });
+
+    const resetBtn = document.createElement('button');
+    resetBtn.className = 'rm-btn'; resetBtn.title = 'Reset to auto color'; resetBtn.innerHTML = '&#8635;';
+    resetBtn.addEventListener('click', () => {
+      state.axisColorOverrides[i] = null;
+      colorInp.value = axisColorHex(i);
+      rebuildScene();
+    });
+
+    div.appendChild(colorInp); div.appendChild(nameInp); div.appendChild(resetBtn);
+    axisListEl.appendChild(div);
+  }
+  dimReadout.textContent = `N = ${state.n}`;
+  dimWarnEl.innerHTML = state.n > 6
+    ? `<div class="warn-box">High dimension count: grid line count grows as N·(N-1)/2. Consider a smaller grid extent for performance.</div>` : '';
+}
+
+function renderMatrixGrid(){
+  matrixGridEl.style.gridTemplateColumns = `repeat(${state.n}, 1fr)`;
+  matrixGridEl.innerHTML = '';
+  for(let r=0;r<state.n;r++){
+    for(let c=0;c<state.n;c++){
+      const inp = document.createElement('input');
+      inp.type = 'number'; inp.step = '0.1';
+      inp.value = state.M[r][c];
+      inp.addEventListener('input', () => {
+        // staged only -- deliberately no rebuildScene() here, see hint text in panel
+        const val = parseFloat(inp.value);
+        state.M[r][c] = isNaN(val) ? 0 : val;
+      });
+      matrixGridEl.appendChild(inp);
+    }
+  }
+}
+
+function renderTranslateInputs(){
+  translateInputsEl.innerHTML = '';
+  for(let i=0;i<state.n;i++){
+    const inp = document.createElement('input');
+    inp.type = 'number'; inp.step = '0.1'; inp.value = state.translate[i] || 0;
+    inp.addEventListener('input', () => {
+      state.translate[i] = parseFloat(inp.value) || 0;
+      rebuildScene();
+    });
+    translateInputsEl.appendChild(inp);
+  }
+}
+
+let pendingNewVec = zeros(state.n);
+function renderNewVecInputs(){
+  newVecInputsEl.innerHTML = '';
+  pendingNewVec = zeros(state.n);
+  for(let i=0;i<state.n;i++){
+    const inp = document.createElement('input');
+    inp.type = 'number'; inp.step = '0.1'; inp.value = 0; inp.placeholder = `d${i}`;
+    inp.addEventListener('input', () => { pendingNewVec[i] = parseFloat(inp.value) || 0; });
+    newVecInputsEl.appendChild(inp);
+  }
+}
+
+function renderVecList(){
+  vecListEl.innerHTML = '';
+  state.vectors.forEach((vec, idx) => {
+    const row = document.createElement('div');
+    row.className = 'vec-row';
+
+    const colorInp = document.createElement('input');
+    colorInp.type = 'color'; colorInp.value = vec.color;
+    colorInp.addEventListener('input', () => { vec.color = colorInp.value; rebuildScene(); });
+    row.appendChild(colorInp);
+
+    const nameInp = document.createElement('input');
+    nameInp.type = 'text'; nameInp.className = 'vec-name';
+    nameInp.value = vec.name || ''; nameInp.placeholder = `v${idx}`;
+    nameInp.addEventListener('input', () => { vec.name = nameInp.value; rebuildScene(); });
+    row.appendChild(nameInp);
+
+    const inputsWrap = document.createElement('div');
+    inputsWrap.className = 'vec-inputs';
+    for(let i=0;i<state.n;i++){
+      const inp = document.createElement('input');
+      inp.type = 'number'; inp.step = '0.1';
+      inp.value = vec.components[i] || 0;
+      inp.addEventListener('input', () => {
+        vec.components[i] = parseFloat(inp.value) || 0;
+        rebuildScene();
+      });
+      inputsWrap.appendChild(inp);
+    }
+    row.appendChild(inputsWrap);
+
+    const rm = document.createElement('button');
+    rm.className = 'rm-btn'; rm.innerHTML = '&times;';
+    rm.addEventListener('click', () => {
+      state.vectors.splice(idx,1);
+      renderVecList();
+      rebuildScene();
+    });
+    row.appendChild(rm);
+    vecListEl.appendChild(row);
+  });
+}
+
+function fullUIRefresh(){
+  renderAxisList();
+  renderMatrixGrid();
+  renderTranslateInputs();
+  renderNewVecInputs();
+  renderVecList();
+  rebuildScene();
+}
+
+dimCountEl.addEventListener('input', () => {
+  let n = parseInt(dimCountEl.value);
+  if(isNaN(n) || n < 0) n = 0;
+  if(n > 9) n = 9;
+  dimCountEl.value = n;
+  const oldM = state.M, oldApplied = state.appliedM, oldN = state.n;
+  const wasFlat = state.n <= 2, willBeFlat = n <= 2;
+  state.n = n;
+  if(willBeFlat && !wasFlat){ orbit.az = Math.PI/2; orbit.pol = Math.PI/2; }
+  state.M = identity(n);
+  state.appliedM = identity(n);
+  for(let r=0;r<Math.min(n,oldN);r++) for(let c=0;c<Math.min(n,oldN);c++){
+    state.M[r][c] = oldM[r][c];
+    state.appliedM[r][c] = oldApplied[r][c];
+  }
+  state.translate = zeros(n);
+  while(state.axisNames.length < n) state.axisNames.push('');
+  state.axisNames.length = n;
+  while(state.axisColorOverrides.length < n) state.axisColorOverrides.push(null);
+  state.axisColorOverrides.length = n;
+  state.vectors.forEach(v => {
+    while(v.components.length < n) v.components.push(0);
+    v.components.length = n;
+  });
+  fullUIRefresh();
+});
+
+document.getElementById('btnIdentity').addEventListener('click', () => {
+  state.M = identity(state.n); // reset the *typed* field only -- still needs Jump/Animate
+  renderMatrixGrid();
+});
+
+document.getElementById('btnJump').addEventListener('click', () => {
+  state.animating = false;
+  state.appliedM = state.M.map(row => row.slice());
+  rebuildScene();
+});
+
+document.getElementById('btnAnimate').addEventListener('click', () => {
+  state.animFrom = state.appliedM.map(row => row.slice()); // continue from where we are, not always from I
+  state.animT = 0;
+  state.animating = true;
+});
+
+const animSpeedSlider = document.getElementById('animSpeed');
+const animSpeedLabel = document.getElementById('animSpeedLabel');
+animSpeedSlider.addEventListener('input', e => {
+  state.animSpeed = parseFloat(e.target.value);
+  animSpeedLabel.textContent = state.animSpeed.toFixed(1) + 'x';
+});
+
+document.getElementById('rigidToggle').addEventListener('change', e => {
+  state.rigid = e.target.checked;
+  rebuildScene();
+});
+
+document.getElementById('anchorToggle').addEventListener('change', e => {
+  state.anchor = e.target.checked;
+  translateBlock.style.display = state.anchor ? 'none' : 'block';
+  rebuildScene();
+});
+
+document.getElementById('btnAddVec').addEventListener('click', () => {
+  const hue = 47 + state.vectors.length * 137.508;
+  const color = new THREE.Color(`hsl(${hue % 360}, 75%, 60%)`);
+  const nameEl = document.getElementById('newVecName');
+  state.vectors.push({ components: pendingNewVec.slice(), color: '#'+color.getHexString(), name: nameEl.value.trim() });
+  nameEl.value = '';
+  renderVecList();
+  renderNewVecInputs();
+  rebuildScene();
+});
+
+document.getElementById('gridToggle').addEventListener('change', e => { state.showGrid = e.target.checked; rebuildScene(); });
+document.getElementById('ghostToggle').addEventListener('change', e => { state.showGhost = e.target.checked; rebuildScene(); });
+document.getElementById('planeToggle').addEventListener('change', e => { state.showPlanes = e.target.checked; rebuildScene(); });
+const gridExtentSlider = document.getElementById('gridExtent');
+const gridExtentNum = document.getElementById('gridExtentNum');
+gridExtentSlider.addEventListener('input', e => {
+  state.gridExtent = parseInt(e.target.value);
+  gridExtentNum.value = state.gridExtent;
+  rebuildScene();
+});
+gridExtentNum.addEventListener('input', e => {
+  let v = parseInt(e.target.value);
+  if(isNaN(v)) return;
+  v = Math.max(1, Math.min(200, v));
+  state.gridExtent = v;
+  gridExtentSlider.value = Math.min(30, v);
+  rebuildScene();
+});
+document.getElementById('bgColor').addEventListener('input', e => {
+  state.bg = e.target.value;
+  renderer.setClearColor(new THREE.Color(state.bg));
+  rebuildScene();
+});
+
+// offset (orbit.target) is also driven by drag-panning the viewport directly,
+// so these inputs stay in sync via syncOffsetInputs() each frame rather than
+// only updating on their own input event
+const offsetAxisLabels = ['X','Y','Z'];
+offsetInputEls = offsetAxisLabels.map((lbl, i) => {
+  const inp = document.createElement('input');
+  inp.type = 'number'; inp.step = '0.1'; inp.value = 0; inp.placeholder = lbl;
+  inp.addEventListener('input', () => {
+    const v = parseFloat(inp.value);
+    orbit.target[['x','y','z'][i]] = isNaN(v) ? 0 : v;
+  });
+  offsetInputsEl.appendChild(inp);
+  return inp;
+});
+function syncOffsetInputs(){
+  if(offsetInputEls.length < 3) return;
+  ['x','y','z'].forEach((axis, i) => {
+    if(document.activeElement === offsetInputEls[i]) return; // don't clobber active typing
+    offsetInputEls[i].value = orbit.target[axis].toFixed(2);
+  });
+}
+document.getElementById('btnCenterView').addEventListener('click', () => {
+  orbit.target.set(0,0,0);
+});
+
+renderer.setClearColor(new THREE.Color(state.bg));
+fullUIRefresh();
+</script>
+</body>
+</html>
